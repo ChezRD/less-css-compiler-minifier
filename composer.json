@@ -1,0 +1,6 @@
+{
+	"require": {
+		"leafo/lessphp": "0.4.0",
+		"css-crush/css-crush": "dev-master"
+	}
+}

@@ -1,0 +1,38 @@
+{
+    "name": "css-crush/css-crush",
+    "type": "library",
+    "description": "CSS preprocessor",
+    "keywords": ["css", "preprocessor"],
+    "homepage": "http://the-echoplex.net/csscrush",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Pete Boere",
+            "email": "pete@the-echoplex.net"
+        },
+        {
+            "name": "GitHub contributors",
+            "homepage": "https://github.com/peteboere/css-crush/contributors"
+        }
+    ],
+    "require": {
+        "php": ">=5.3.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "3.7.*@dev",
+        "psr/log": "1.0.*@dev",
+        "twig/twig": "1.*"
+    },
+    "bin": [
+        "misc/csscrush"
+    ],
+    "autoload": {
+        "psr-0": { "CssCrush": "lib/" },
+        "files": [ "lib/functions.php" ]
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-master": "2.1-dev"
+        }
+    }
+}

@@ -1,20 +1,17 @@
+#!/usr/bin/env php
 <?php
 
+/**
+ * @project less-css-compiler-minifier
+ * @author Evgeny Chez Rumiantsev
+ * @date 2014-04-07
+ *
+ * @use php path_to_this_script project=path_to_project_root
+ */
+
+require_once dirname( __FILE__ ) . '/vendor/autoload.php';
+
 parse_str( implode( '&', array_slice( $argv, 1 ) ), $_GET );
-
-class SortingIterator extends ArrayIterator
-{
-	public function __construct( Traversable $iterator, $callback )
-	{
-		if ( ! is_callable( $callback ) )
-		{
-			throw new InvalidArgumentException( sprintf( 'Callback must be callable (%s given).', $callback ) );
-		}
-
-		parent::__construct( iterator_to_array( $iterator ) );
-		$this->uasort( $callback );
-	}
-}
 
 $config = array();
 $basedir = array();
@@ -27,11 +24,14 @@ if ( isset( $_GET['project'] ) && !empty( $_GET[ 'project' ] ) )
 	}
 }
 
-function rsearch( $folder, $pattern )
+function css_search( $folder, $pattern )
 {
 	$dir = new RecursiveDirectoryIterator( $folder );
 	$ite = new RecursiveIteratorIterator( $dir );
-	$sorting = new SortingIterator( $ite, 'strnatcasecmp' );
+
+	$sorting = new ArrayIterator( iterator_to_array( $ite ) );
+	$sorting->uasort( 'strnatcasecmp' );
+
 	$files = new RegexIterator( $sorting, $pattern, RegexIterator::GET_MATCH );
 	$fileList = array();
 
@@ -43,7 +43,7 @@ function rsearch( $folder, $pattern )
 	return $fileList;
 }
 
-function search($dir)
+function less_search($dir)
 {
 	$wrapper = '';
 	$content = '';
@@ -82,7 +82,7 @@ function search($dir)
 
 		if ( is_dir( $dir . DIRECTORY_SEPARATOR . $file ) )
 		{
-			$content .= search( $dir . DIRECTORY_SEPARATOR . $file );
+			$content .= less_search( $dir . DIRECTORY_SEPARATOR . $file );
 		}
 	}
 
@@ -95,6 +95,8 @@ function search($dir)
 		return $content;
 	}
 }
+
+/*
 
 if ( isset( $_GET['dir'] ) && !empty( $_GET['dir'] ) )
 {
@@ -110,29 +112,23 @@ if ( isset( $_GET['dir'] ) && !empty( $_GET['dir'] ) )
 	}
 }
 
+*/
+
 if ( empty( $basedir ) && !empty( $config ) && count( $config ) > 0 )
 {
 	foreach( $config as $knf => $cnf )
 	{
-//		print_r( $cnf );
-//		exit;
 		$basedir[0] = $_GET['project'] . '/' . $cnf['path'];
 
 		if ( !is_dir( $basedir[0] ) )
 		{
-			echo 'bad config value: path(' . $knf . ')=' . $cnf['path'] . "\n";
+			echo 'bad config value: [' . $knf . '] path=' . $cnf['path'] . "\n";
 			continue;
 		}
-
-//		print_r( $cnf['path'] );
 
 		$odir = opendir( $basedir[0] );
 
 		$files = array();
-
-//		echo $odir . '  -  ';
-//		echo readdir( $odir );
-//		die( $basedir[0] );
 
 		while ( ( $file = readdir( $odir ) ) !== FALSE )
 		{
@@ -147,24 +143,21 @@ if ( empty( $basedir ) && !empty( $config ) && count( $config ) > 0 )
 				{
 					$basedir[1] = $file;
 					$basedir[2] = $mtch[1] . '.css';
-
 					$output_css = '';
-					$css = rsearch( $basedir[0] . $basedir[1], '/^.*\.css$/ius' );
+					$output_less = '';
+
+					$css = css_search( $basedir[0] . $basedir[1], '/^.*\.css$/ius' );
 
 					foreach( $css as $item )
 					{
 						$output_css .= file_get_contents( $item ) . "\n";
 					}
 
-					require_once dirname( __FILE__ ) . '/vendor/autoload.php';
-
 					$less = new lessc();
-
-					$output_less = '';
 
 					try
 					{
-						$output_less = $less->compile( search( $basedir[0] . $basedir[1] ) );
+						$output_less = $less->compile( less_search( $basedir[0] . $basedir[1] ) );
 					}
 					catch ( exception $e )
 					{
@@ -186,7 +179,11 @@ if ( empty( $basedir ) && !empty( $config ) && count( $config ) > 0 )
 
 					if ( $basedir[2] )
 					{
-						unlink( $basedir[0] . $basedir[2] );
+						if ( file_exists( $basedir[0] . $basedir[2] ) )
+						{
+							unlink( $basedir[0] . $basedir[2] );
+						}
+
 						file_put_contents( $basedir[0] . $basedir[2], $output_css );
 						echo 'compiled ' . $basedir[0] . $basedir[2];
 					}
@@ -202,6 +199,5 @@ if ( empty( $basedir ) && !empty( $config ) && count( $config ) > 0 )
 				}
 			}
 		}
-
 	}
 }
