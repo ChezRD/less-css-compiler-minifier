@@ -25,7 +25,7 @@ Parameters: `~/phpstorm-tools/less/compiler/compiler.php project=$ProjectFileDir
 WorkingDirectory: `not in use`
 
 
-Also, you may want to use hotkey for compile output files
+*Also, you may want to use hotkey for compile output files*
 
 `ctrl+alt+s` -> `Keymap` -> `External Tools` -> `Your Group` -> `Your Tool Name`
 
