@@ -25,15 +25,15 @@ Parameters: `~/phpstorm-tools/less/compiler/compiler.php project=$ProjectFileDir
 WorkingDirectory: `not in use`
 
 
-*Also, you may want to use hotkey for compile output files*
+**Also, you may want to use hotkey for compile output filse**
 
 `ctrl+alt+s` -> `Keymap` -> `External Tools` -> `Your Group` -> `Your Tool Name`
 
 RightClick on tool -> `Add Keyboard Shortcut` -> Press needed buttons ( for me it is `Ctrl+Shift+F9` )
 
 
+**You can also use it as FileWatcher, but if you using autodeployment open**
 
-You can also use it as FileWatcher, but if you using autodeployment open
 `ctrl+alt+s` -> Projects settings `Deployment -> Options` 
 Find `Upload changed files automaticaly to the default server` choose first or second value then check `Upload external changes`.
 
