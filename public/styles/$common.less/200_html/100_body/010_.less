@@ -1,0 +1,163 @@
+&
+{
+	position: relative;
+	
+	overflow-x: hidden;
+//	overflow-y: visible;
+	overflow-y: scroll;
+	
+	width: 100%;
+	min-width: @page_width + @padding_left + @padding_right;
+//	min-height: 100%;
+//	padding-bottom: @footer_height;
+//	height: 100%;
+	
+	font-family: @base_font;
+	word-wrap: normal;
+	
+	color: @base_color;
+	
+	&:before
+	{
+		position: absolute;
+		right: 0;
+		left: 0;
+		z-index: -1;
+		
+		display:  block;
+		
+		width: 100%;
+		height: @header_height;
+		
+		content: "";
+		
+		background: @header_bg;
+	}
+	
+	&:after
+	{
+		display: block;
+		clear: both;
+		
+		height: @header_height;
+		width: 1px;
+		
+		content: "";
+	}
+	
+	&.solutions
+	{
+		> div.popup
+		{
+			position: absolute;
+			left: 0;
+			right: 0;
+//			z-index: 100;
+			
+			display: block;
+			
+			width: @page_width - 4*@block_size;
+			padding-left: 2*@block_size;
+			padding-right: 2*@block_size;
+			padding-bottom: 2*@block_size;
+			padding-top: 5*@block_size;
+			margin-top: -@block_size/2;
+			margin-right: auto;
+			margin-left: auto;
+			
+			background: @header_bg;
+			
+			> button
+			{
+				position: absolute;
+//				right: @block_size - 5px;
+//				top: @block_size - 5px;
+				top: 0;
+				right: 0;
+				left: 0;
+				z-index: 2;
+				
+				padding: 0 15px 0 0;
+				
+//				font-size: 42px;
+//				font-weight: @font_weight_thin;
+				
+				height: 30px;
+				width: 100%;
+				
+				line-height: 0;
+				text-align: right;
+				
+				background: none;
+				border: none;
+				outline: none;
+				
+				&:active
+				{
+					outline: none;
+				}
+				
+				&:before
+				{
+					font-size: 60px;
+					font-weight: 100;
+					
+					content: "×";
+					
+					vertical-align: top;
+					
+					color: @color_a_hover;
+				}
+			}
+			
+			> h3
+			{
+				margin-bottom: @block_size;
+				
+				font-size: 13px;
+				line-height: 28px;
+				font-weight: @font_weight_regular;
+				text-transform: uppercase;
+				
+				color: @color_a_hover;
+			}
+			
+			> ul
+			{
+				padding: 0;
+				margin: 0;
+				
+				list-style: none;
+				
+				html.csscolumns &
+				{
+					columns: 4;
+				}
+
+				> li
+				{
+					display: block;
+					
+//					width: 25%;
+					
+					html.no-csscolumns &
+					{
+						display: inline-block;
+						
+//						width: 210px;
+						width: 25%;
+						
+						vertical-align: middle;
+					}
+
+					color: @wallet_color;
+				}
+			}
+		}
+	}
+	
+	&.contacts > main
+	{
+		background: @news_bg;
+	}
+}

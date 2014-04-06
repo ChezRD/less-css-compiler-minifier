@@ -1,0 +1,47 @@
+
+@font_weight_extra_bold: 800;
+@font_weight_bold: 700;
+@font_weight_semi_bold: 600;
+@font_weight_medium: 500;
+@font_weight_regular: 400;
+@font_weight_light: 300;
+@font_weight_thin: 200;
+
+/*
+100    Extra Light or Ultra Light
+200    Light or Thin
+300    Book or Demi
+400    Normal or Regular
+500    Medium
+600    Semibold, Demibold
+700    Bold
+800    Black, Extra Bold or Heavy
+900    Extra Black, Fat, Poster or Ultra Black
+*/
+
+@font-face
+{
+	font-family: DaxlineWebPro-Light;
+	src: url('/styles/fonts/DaxlineWebPro-Light.eot');
+	src: url('/styles/fonts/DaxlineWebPro-Light.eot?#iefix') format('embedded-opentype'),
+		url('/styles/fonts/DaxlineWebPro-Light.woff') format('woff'),
+		url('/styles/fonts/DaxlineWebPro-Light.ttf') format('truetype');
+	font-weight: @font_weight_light;
+	font-style: normal;
+}
+
+@font-face
+{
+	font-family: DaxlineScWebPro-Light;
+	src: url('/styles/fonts/DaxlineScWebPro-Light.eot');
+	src: url('/styles/fonts/DaxlineScWebPro-Light.eot?#iefix') format('embedded-opentype'),
+		url('/styles/fonts/DaxlineScWebPro-Light.woff') format('woff'),
+		url('/styles/fonts/DaxlineScWebPro-Light.ttf') format('truetype');
+	font-weight: @font_weight_light;
+	font-style: normal;
+}
+
+
+@base_font: 'Open Sans', sans-serif;
+@promo_font: DaxlineWebPro-Light, 'Open Sans', sans-serif;
+@support_font: DaxlineScWebPro-Light, 'Open Sans', sans-serif;

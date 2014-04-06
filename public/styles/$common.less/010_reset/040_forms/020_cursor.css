@@ -1,0 +1,12 @@
+label[for],
+input[type=button],
+input[type=submit],
+input[type=reset],
+input[type=image],
+input[type=checkbox],
+input[type=radio],
+button,
+select
+{
+	cursor: pointer;
+}
