@@ -2,48 +2,31 @@
 <?php
 
 /**
- * @project less-css-compiler-minifier
+ * @project less-css-compiler-js-minifier
  * @author Evgeny Chez Rumiantsev
- * @date 2014-04-07
+ * @date 2014-05-26
  *
  * @use php path_to_this_script project=path_to_project_root
  */
+ 
 
-require_once dirname( __FILE__ ) . '/vendor/autoload.php';
+require_once dirname( __FILE__ ) . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
 
 parse_str( implode( '&', array_slice( $argv, 1 ) ), $_GET );
+
 
 $config = array();
 $basedir = array();
 
 if ( isset( $_GET['project'] ) && !empty( $_GET[ 'project' ] ) )
 {
-	if ( file_exists( $_GET['project'] . '/compiler.ini' ) )
+	if ( file_exists( $_GET['project'] . DIRECTORY_SEPARATOR . 'compiler.ini' ) )
 	{
-		$config = parse_ini_file( $_GET['project'] . '/compiler.ini', true );
+		$config = parse_ini_file( $_GET['project'] . DIRECTORY_SEPARATOR . 'compiler.ini', true );
 	}
 }
 
-function css_search( $folder, $pattern )
-{
-	$dir = new RecursiveDirectoryIterator( $folder );
-	$ite = new RecursiveIteratorIterator( $dir );
-
-	$sorting = new ArrayIterator( iterator_to_array( $ite ) );
-	$sorting->uasort( 'strnatcasecmp' );
-
-	$files = new RegexIterator( $sorting, $pattern, RegexIterator::GET_MATCH );
-	$fileList = array();
-
-	foreach ( $files as $file )
-	{
-		$fileList = array_merge( $fileList, $file );
-	}
-
-	return $fileList;
-}
-
-function less_search($dir)
+function file_search( $dir, $pattern, $wrapper_file = '_wrapper.less' )
 {
 	$wrapper = '';
 	$content = '';
@@ -67,13 +50,13 @@ function less_search($dir)
 		}
 		else
 		{
-			if ( $file === '_wrapper.less' )
+			if ( $file === $wrapper_file )
 			{
 				$wrapper = file_get_contents( $dir . DIRECTORY_SEPARATOR . $file ) . "\n";
 			}
 			else
 			{
-				if ( preg_match( '/\.less$/', $file ) )
+				if ( preg_match( $pattern, $file ) )
 				{
 					$content .= file_get_contents( $dir . DIRECTORY_SEPARATOR . $file ) . "\n";
 				}
@@ -82,7 +65,7 @@ function less_search($dir)
 
 		if ( is_dir( $dir . DIRECTORY_SEPARATOR . $file ) )
 		{
-			$content .= less_search( $dir . DIRECTORY_SEPARATOR . $file );
+			$content .= file_search( $dir . DIRECTORY_SEPARATOR . $file, $pattern, $wrapper_file );
 		}
 	}
 
@@ -96,33 +79,35 @@ function less_search($dir)
 	}
 }
 
-/*
-
-if ( isset( $_GET['dir'] ) && !empty( $_GET['dir'] ) )
+function css_search( $dir )
 {
-	if ( is_dir( $_GET['dir'] ) )
-	{
-		$basedir = explode( '|', preg_replace( '/^(.+)(\$([^\/]*)\.less(?:\/|$))(.*)$/iu', '$1|$2|$3.css', $_GET['dir'] ) );
-
-		if ( !isset( $basedir[0] ) || !isset( $basedir[1] ) || !isset( $basedir[2] ) )
-		{
-			echo 'there is no $%file%.less directory: ' . $_GET['dir'];
-			exit (2);
-		}
-	}
+	return file_search( $dir, '/^.*\.css$/ius', '_wrapper.css' );
 }
 
-*/
+function less_search( $dir )
+{
+	return file_search( $dir, '/^.*\.less$/ius', '_wrapper.less' );
+}
+
+function scss_search( $dir )
+{
+	return file_search( $dir, '/^.*\.scss$/ius', '_wrapper.scss' );
+}
+
+function js_search( $dir )
+{
+	return file_search( $dir, '/^.*\.js$/ius', '_wrapper.js' );
+}
 
 if ( empty( $basedir ) && !empty( $config ) && count( $config ) > 0 )
 {
 	foreach( $config as $knf => $cnf )
 	{
-		$basedir[0] = $_GET['project'] . '/' . $cnf['path'];
+		$basedir[0] = $_GET['project'] . DIRECTORY_SEPARATOR . $cnf['path'];
 
 		if ( !is_dir( $basedir[0] ) )
 		{
-			echo 'bad config value: [' . $knf . '] path=' . $cnf['path'] . "\n";
+			echo "\nbad config value: [ $knf ] path={$cnf['path']}";
 			continue;
 		}
 
@@ -139,65 +124,174 @@ if ( empty( $basedir ) && !empty( $config ) && count( $config ) > 0 )
 					continue;
 				}
 
-				if ( preg_match( '/\$([^\/]*)\.less$/', $file, $mtch ) )
+				if ( $cnf['compiler'] == 'css' )
 				{
-					$basedir[1] = $file;
-					$basedir[2] = $mtch[1] . '.css';
-					$output_css = '';
-					$output_less = '';
-
-					$css = css_search( $basedir[0] . $basedir[1], '/^.*\.css$/ius' );
-
-					foreach( $css as $item )
+					if ( preg_match( '/\$([^\/]*)\.less$/', $file, $mtch ) )
 					{
-						$output_css .= file_get_contents( $item ) . "\n";
-					}
+						$basedir[1] = $file;
+						$basedir[2] = $mtch[1] . '.css';
+						$output_css = '';
+						$output_less = '';
 
-					$less = new lessc();
+						$output_css = css_search( $basedir[0] . $basedir[1], '/^.*\.css$/ius' );
 
-					try
-					{
-						$output_less = $less->compile( less_search( $basedir[0] . $basedir[1] ) );
-					}
-					catch ( exception $e )
-					{
-						echo "fatal error: " . $e->getMessage(), E_USER_ERROR;
-						exit ( 1 );
-					}
+						$less = new lessc();
 
-					$output_css = $output_css . $output_less;
-
-					if ( isset( $cnf['csso'] ) && $cnf['csso'] == 1 )
-					{
-						$output_css = csscrush_string( $output_css, array(
-							'minify' => isset( $config['minify'] ) ? !!$cnf['minify'] : true,
-							'formatter' => isset( $cnf['formatter'] ) ? $cnf['formatter'] : false,
-							'boilerplate' => isset( $cnf['boilerplate'] ) ? !!$cnf['boilerplate'] : false,
-							'plugins' => isset( $cnf['crush_plugins'] ) ? $cnf['crush_plugins'] : array(),
-						) );
-					}
-
-					if ( $basedir[2] )
-					{
-						if ( file_exists( $basedir[0] . $basedir[2] ) )
+						try
 						{
-							unlink( $basedir[0] . $basedir[2] );
+							$output_less = $less->compile( less_search( $basedir[0] . $basedir[1] ) );
+						}
+						catch ( exception $e )
+						{
+							echo "\nfatal error: " . $e->getMessage(), E_USER_ERROR;
+							exit ( 1 );
 						}
 
-						file_put_contents( $basedir[0] . $basedir[2], $output_css );
-						echo 'compiled ' . $basedir[0] . $basedir[2];
+						$output_css = $output_css . $output_less;
+
+						if ( isset( $cnf['csso'] ) && $cnf['csso'] == 1 )
+						{
+							$output_css = csscrush_string( $output_css, array(
+								'minify' => isset( $config['minify'] ) ? !!$cnf['minify'] : true,
+								'formatter' => isset( $cnf['formatter'] ) ? $cnf['formatter'] : false,
+								'boilerplate' => isset( $cnf['boilerplate'] ) ? !!$cnf['boilerplate'] : false,
+								'plugins' => isset( $cnf['crush_plugins'] ) ? $cnf['crush_plugins'] : array(),
+							) );
+						}
+
+						if ( $basedir[2] )
+						{
+							if ( file_exists( $basedir[0] . $basedir[2] ) )
+							{
+								unlink( $basedir[0] . $basedir[2] );
+							}
+
+							file_put_contents( $basedir[0] . $basedir[2], $output_css );
+							echo "\ncompiled: {$basedir[0]}{$basedir[2]}";
+						}
+						else
+						{
+							echo "\ninvalid filename format. check $%file%.less dirname";
+							exit ( 1 );
+						}
+					}
+					elseif ( preg_match( '/\$([^\/]*)\.scss$/', $file, $mtch ) )
+					{
+						$basedir[1] = $file;
+						$basedir[2] = $mtch[1] . '.css';
+						$output_css = '';
+						$output_less = '';
+
+						$output_css = css_search( $basedir[0] . $basedir[1], '/^.*\.css$/ius' );
+
+						$less = new scssc();
+
+						try
+						{
+							$output_scss = $less->compile( scss_search( $basedir[0] . $basedir[1] ) );
+						}
+						catch ( exception $e )
+						{
+							echo "\nfatal error: " . $e->getMessage(), E_USER_ERROR;
+							exit ( 1 );
+						}
+
+						$output_css = $output_css . $output_scss;
+
+						if ( isset( $cnf['csso'] ) && $cnf['csso'] == 1 )
+						{
+							$output_css = csscrush_string( $output_css, array(
+								'minify' => isset( $config['minify'] ) ? !!$cnf['minify'] : true,
+								'formatter' => isset( $cnf['formatter'] ) ? $cnf['formatter'] : false,
+								'boilerplate' => isset( $cnf['boilerplate'] ) ? !!$cnf['boilerplate'] : false,
+								'plugins' => isset( $cnf['crush_plugins'] ) ? $cnf['crush_plugins'] : array(),
+							) );
+						}
+
+						if ( $basedir[2] )
+						{
+							if ( file_exists( $basedir[0] . $basedir[2] ) )
+							{
+								unlink( $basedir[0] . $basedir[2] );
+							}
+
+							file_put_contents( $basedir[0] . $basedir[2], $output_css );
+							echo "\ncompiled: {$basedir[0]}{$basedir[2]}";
+						}
+						else
+						{
+							echo "\ninvalid filename format. check $%file%.scss dirname";
+							exit (1);
+						}
 					}
 					else
 					{
-						echo 'invalid filename format. check $%file%.less dirname';
-						exit (1);
+						echo "\nnot a valid dir: $file";
+					}
+				}
+				elseif ( $cnf['compiler'] == 'js' )
+				{
+					if ( preg_match( '/\$([^\/]*)\.js/', $file, $mtch ) )
+					{
+						$basedir[1] = $file;
+						$basedir[2] = $mtch[1] . '.js';
+						$output_js = '';
+
+						if ( isset( $cnf['minify'] ) && $cnf['minify'] == 'true' )
+						{
+							try
+							{
+								$output_js = \JShrink\Minifier::minify(
+									js_search( $basedir[0] . $basedir[1] ),
+									array(
+										'flaggedComments' => false
+									)
+								);
+							}
+							catch ( \Exception $e )
+							{
+								echo "\nfatal error: " . $e->getMessage(), E_USER_ERROR;
+								exit ( 1 );
+							}
+						}
+						else
+						{
+							$output_js = js_search( $basedir[0] . $basedir[1] );
+						}
+
+						if ( $basedir[2] )
+						{
+							if ( file_exists( $basedir[0] . $basedir[2] ) )
+							{
+								unlink( $basedir[0] . $basedir[2] );
+							}
+
+							if ( !empty( $output_js ) )
+							{
+								file_put_contents( $basedir[0] . $basedir[2], $output_js );
+								echo "\ncompiled: {$basedir[0]}{$basedir[2]}";
+							}
+							else
+							{
+								echo "\ncompile error: file string empty";
+							}
+						}
+						else
+						{
+							echo "\ninvalid filename format. check $%file%.js dirname";
+							exit ( 1 );
+						}
 					}
 				}
 				else
 				{
-					echo 'not a valid dir: ' . $file;
+					echo "\nnot a valid compiler: {$cnf['compiler']}";
 				}
 			}
 		}
 	}
+}
+else
+{
+	die(4);
 }
