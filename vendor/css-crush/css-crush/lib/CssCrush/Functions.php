@@ -31,11 +31,9 @@ class Functions
 
     protected $patternOptions;
 
-    public function __construct($register = array(), $pattern = null, $pattern_options = array())
+    public function __construct($register = array())
     {
         $this->register = $register;
-        $this->pattern = $pattern;
-        $this->patternOptions = $pattern_options;
     }
 
     public function add($name, $callback)
@@ -48,17 +46,16 @@ class Functions
         unset($this->register[$name]);
     }
 
-    public function setPattern($use_builtin = false)
+    public function setPattern($useBuiltins = false)
     {
-        $options = $this->patternOptions;
-        if ($use_builtin) {
+        if ($useBuiltins) {
             $this->register = self::$builtins + $this->register;
-            $options += array('bare_paren' => true);
         }
-        $this->pattern = Regex::makeFunctionPatt(array_keys($this->register), $options);
+
+        $this->pattern = Functions::makePattern(array_keys($this->register));
     }
 
-    public function apply($str, $callbacks = null, \stdClass $context = null)
+    public function apply($str, \stdClass $context = null)
     {
         if (strpos($str, '(') === false) {
             return $str;
@@ -72,26 +69,14 @@ class Functions
             return $str;
         }
 
-        if (! $context) {
-            $context = new \stdClass();
-        }
-
         $matches = Regex::matchAll($this->pattern, $str);
 
         while ($match = array_pop($matches)) {
 
-            $offset = $match[0][1];
+            list($function, $offset) = $match['function'];
 
             if (! preg_match(Regex::$patt->parens, $str, $parens, PREG_OFFSET_CAPTURE, $offset)) {
                 continue;
-            }
-
-            // No function name default to math expression.
-            // Store the raw function name match.
-            $raw_fn_name = isset($match[1]) ? strtolower($match[1][0]) : '';
-            $fn_name = $raw_fn_name ? $raw_fn_name : 'math';
-            if ('-' === $fn_name) {
-                $fn_name = 'math';
             }
 
             $opening_paren = $parens[0][1];
@@ -100,23 +85,18 @@ class Functions
             // Get the function arguments.
             $raw_args = trim($parens['parens_content'][0]);
 
-            // Workaround the signs.
-            $before_operator = '-' === $raw_fn_name ? '-' : '';
-
-            $func_returns = '';
-            $context->function = $fn_name;
-
-            // Use override callback if one is specified.
-            if (isset($callbacks[$fn_name])) {
-                $func_returns = $callbacks[$fn_name]($raw_args, $context);
-            }
-            elseif (isset($this->register[$fn_name])) {
-                $func = $this->register[$fn_name];
-                $func_returns = $func($raw_args, $context);
+            // Update the context function identifier.
+            if ($context) {
+                $context->function = $function;
             }
 
-            // Splice in the function result.
-            $str = substr_replace($str, "$before_operator$func_returns", $offset, $closing_paren - $offset);
+            $returns = '';
+            if (isset($this->register[$function])) {
+                $fn = $this->register[$function];
+                $returns = $fn($raw_args, $context);
+            }
+
+            $str = substr_replace($str, $returns, $offset, $closing_paren - $offset);
         }
 
         return $str;
@@ -128,8 +108,12 @@ class Functions
 
     public static function parseArgs($input, $allowSpaceDelim = false)
     {
-        return Util::splitDelimList(
-            $input, ($allowSpaceDelim ? '\s*[,\s]\s*' : ','));
+        $options = array();
+        if ($allowSpaceDelim) {
+            $options['regex'] = '\s*[,\s]\s*';
+        }
+
+        return Util::splitDelimList($input, $options);
     }
 
     // Intended as a quick arg-list parse for function that take up-to 2 arguments
@@ -137,6 +121,32 @@ class Functions
     public static function parseArgsSimple($input)
     {
         return preg_split(Regex::$patt->argListSplit, $input, 2);
+    }
+
+    public static function makePattern($functionNames)
+    {
+        $idents = array();
+        $nonIdents = array();
+
+        foreach ($functionNames as $functionName) {
+            if (preg_match(Regex::$patt->ident, $functionName[0])) {
+                $idents[] = preg_quote($functionName);
+            }
+            else {
+                $nonIdents[] = preg_quote($functionName);
+            }
+        }
+
+        $flatList = '';
+        if (! $idents) {
+            $flatList = implode('|', $nonIdents);
+        }
+        else {
+            $idents = '{{ LB }}(?:' . implode('|', $idents) . ')';
+            $flatList = $nonIdents ? '(?:' . implode('|', $nonIdents) . "|$idents)" : $idents;
+        }
+
+        return Regex::make("~(?<function>$flatList)\(~iS");
     }
 }
 

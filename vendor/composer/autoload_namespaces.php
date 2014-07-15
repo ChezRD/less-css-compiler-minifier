@@ -6,5 +6,6 @@ $vendorDir = dirname(dirname(__FILE__));
 $baseDir = dirname($vendorDir);
 
 return array(
+    'JShrink' => array($vendorDir . '/tedivm/jshrink/src'),
     'CssCrush' => array($vendorDir . '/css-crush/css-crush/lib'),
 );

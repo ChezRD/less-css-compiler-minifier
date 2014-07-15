@@ -22,6 +22,7 @@ class Process
         $this->mixins = array();
         $this->fragments = array();
         $this->references = array();
+        $this->absoluteImports = array();
         $this->charset = null;
         $this->sources = array();
         $this->vars = array();
@@ -197,11 +198,11 @@ class Process
 
     protected function resolveSelectorAliases()
     {
-        $this->stream->pregReplaceCallback(
-            Regex::make('~@selector-(?<type>alias|splat) +\:?(?<name>{{ident}}) +(?<handler>[^;]+) *;~iS'),
+        $this->string->pregReplaceCallback(
+            Regex::make('~@selector(?:-(?<type>alias|splat))? +\:?(?<name>{{ident}}) +(?<handler>[^;]+) *;~iS'),
             function ($m) {
                 $name = strtolower($m['name']);
-                $type = strtolower($m['type']);
+                $type = ! empty($m['type']) ? strtolower($m['type']) : 'alias';
                 $handler = Util::stripCommentTokens($m['handler']);
                 Crush::$process->selectorAliases[$name] = new SelectorAlias($handler, $type);
             });
@@ -365,7 +366,7 @@ class Process
 
     protected function captureVars()
     {
-        Crush::$process->vars = Crush::$process->stream->captureDirectives('@define', array(
+        Crush::$process->vars = Crush::$process->string->captureDirectives(array('set', 'define'), array(
             'singles' => true,
             'lowercase_keys' => false,
         )) + Crush::$process->vars;
@@ -380,70 +381,66 @@ class Process
 
         // Place variables referenced inside variables.
         foreach ($this->vars as &$value) {
-            $value = preg_replace_callback(Regex::$patt->varFunction, 'CssCrush\Process::cb_placeVars', $value);
+            $this->placeVars($value);
         }
     }
 
     protected function placeAllVars()
     {
-        // Place variables in main stream.
-        self::placeVars($this->stream->raw);
+        $this->placeVars($this->string->raw);
 
-        $raw_tokens =& $this->tokens->store;
+        $rawTokens =& $this->tokens->store;
 
         // Repeat above steps for variables embedded in string tokens.
-        foreach ($raw_tokens->s as $label => &$value) {
-            self::placeVars($value);
+        foreach ($rawTokens->s as $label => &$value) {
+            $this->placeVars($value);
         }
 
         // Repeat above steps for variables embedded in URL tokens.
-        foreach ($raw_tokens->u as $label => $url) {
-            if (! $url->isData && self::placeVars($url->value)) {
+        foreach ($rawTokens->u as $label => $url) {
+            if (! $url->isData && $this->placeVars($url->value)) {
                 // Re-evaluate $url->value if anything has been interpolated.
                 $url->evaluate();
             }
         }
     }
 
-    static protected function placeVars(&$value)
+    protected function placeVars(&$value)
     {
-        static $var_function;
-        if (! $var_function) {
-            $var_function = new Functions(array('$' => function ($raw_args) {
-                        list($name, $default_value) = Functions::parseArgsSimple($raw_args);
-                        if (isset(Crush::$process->vars[$name])) {
-                            return Crush::$process->vars[$name];
-                        }
-                        else {
-                            return $default_value;
-                        }
-                    }), '~(\$)\(~');
+        static $varFunction, $varFunctionSimple;
+        if (! $varFunction) {
+            $varFunctionSimple = Regex::make('~\$\( \s* ({{ ident }}) \s* \)~xS');
+            $varFunction = new Functions(array('$' => function ($rawArgs) {
+                    list($name, $defaultValue) = Functions::parseArgsSimple($rawArgs);
+                    if (isset(Crush::$process->vars[$name])) {
+                        return Crush::$process->vars[$name];
+                    }
+                    else {
+                        return $defaultValue;
+                    }
+                }));
         }
 
         // Variables with no default value.
-        $value = preg_replace_callback(Regex::$patt->varFunction,
-            'CssCrush\Process::cb_placeVars', $value, -1, $vars_placed);
+        $value = preg_replace_callback($varFunctionSimple, function ($m) {
+            $varName = $m[1];
+            if (isset(Crush::$process->vars[$varName])) {
+                return Crush::$process->vars[$varName];
+            }
+        }, $value, -1, $varsPlaced);
 
         // Variables with default value.
         if (strpos($value, '$(') !== false) {
 
             // Assume at least one replace.
-            $vars_placed = true;
+            $varsPlaced = true;
 
             // Variables may be nested so need to apply full function parsing.
-            $value = $var_function->apply($value);
+            $value = $varFunction->apply($value);
         }
 
         // If we know replacements have been made we may want to update $value. e.g URL tokens.
-        return $vars_placed;
-    }
-
-    static protected function cb_placeVars($m)
-    {
-        $var_name = $m[1];
-        if (isset(Crush::$process->vars[$var_name])) {
-            return Crush::$process->vars[$var_name];
-        }
+        return $varsPlaced;
     }
 
 
@@ -452,9 +449,8 @@ class Process
 
     protected function resolveSettings()
     {
-        $captured_settings = $this->stream->captureDirectives('@settings', array('singles' => true));
+        $captured_settings = $this->string->captureDirectives('settings', array('singles' => true));
 
-        // Like variables, settings passed via options override settings defined in CSS.
         $this->settings = new Settings($this->options->settings + $captured_settings);
     }
 
@@ -464,29 +460,26 @@ class Process
 
     protected function resolveIfDefines()
     {
-        $ifdefine_patt = Regex::make('~@ifdefine \s+ (not \s+)? ({{ ident }}) \s* \{~ixS');
+        $ifdefinePatt = Regex::make('~@if(?:set|define) \s+ (?<negate>not \s+)? (?<name>{{ ident }}) \s* \{~ixS');
 
-        $matches = $this->stream->matchAll($ifdefine_patt);
+        $matches = $this->string->matchAll($ifdefinePatt);
 
         while ($match = array_pop($matches)) {
 
-            $curly_match = new BalancedMatch($this->stream, $match[0][1]);
+            $curlyMatch = new BalancedMatch($this->string, $match[0][1]);
 
-            if (! $curly_match->match) {
+            if (! $curlyMatch->match) {
                 continue;
             }
 
-            $negate = $match[1][1] != -1;
-            $name = $match[2][0];
-            $name_defined = isset($this->vars[$name]);
+            $negate = $match['negate'][1] != -1;
+            $nameDefined = isset($this->vars[$match['name'][0]]);
 
-            if (! $negate && $name_defined || $negate && ! $name_defined) {
-                // Test resolved true so include the innards.
-                $curly_match->unWrap();
+            if (! $negate && $nameDefined || $negate && ! $nameDefined) {
+                $curlyMatch->unWrap();
             }
             else {
-                // Recontruct the stream without the innards.
-                $curly_match->replace('');
+                $curlyMatch->replace('');
             }
         }
     }
@@ -497,7 +490,7 @@ class Process
 
     protected function captureMixins()
     {
-        $this->stream->pregReplaceCallback(Regex::$patt->mixin, function ($m) {
+        $this->string->pregReplaceCallback(Regex::$patt->mixin, function ($m) {
             Crush::$process->mixins[$m['name']] = new Mixin($m['block_content']);
         });
     }
@@ -510,7 +503,7 @@ class Process
     {
         $fragments =& Crush::$process->fragments;
 
-        $this->stream->pregReplaceCallback(Regex::$patt->fragmentCapture, function ($m) use (&$fragments) {
+        $this->string->pregReplaceCallback(Regex::$patt->fragmentCapture, function ($m) use (&$fragments) {
             $fragments[$m['name']] = new Fragment(
                     $m['block_content'],
                     array('name' => strtolower($m['name']))
@@ -518,7 +511,7 @@ class Process
             return '';
         });
 
-        $this->stream->pregReplaceCallback(Regex::$patt->fragmentInvoke, function ($m) use (&$fragments) {
+        $this->string->pregReplaceCallback(Regex::$patt->fragmentInvoke, function ($m) use (&$fragments) {
             $fragment = isset($fragments[$m['name']]) ? $fragments[$m['name']] : null;
             if ($fragment) {
                 $args = array();
@@ -537,30 +530,63 @@ class Process
 
     public function captureRules()
     {
-        $this->stream->pregReplaceCallback(Regex::$patt->rule, function ($m) {
+        $tokens = Crush::$process->tokens;
 
-            $selector = trim($m['selector']);
-            $block = trim($m['block_content']);
+        $rulePatt = Regex::make('~
+            (?<trace_token> {{ t_token }})
+            \s*
+            (?<selector> [^{]+)
+            \s*
+            {{ block }}
+        ~xiS');
+        $rulesAndMediaPatt = Regex::make('~{{ r_token }}|@media[^\{]+{{ block }}~iS');
 
-            // Ignore and remove empty rules.
-            if (empty($block) || empty($selector)) {
-                return '';
+        $count = preg_match_all(Regex::$patt->t_token, $this->string->raw, $traceMatches, PREG_OFFSET_CAPTURE);
+        while ($count--) {
+
+            $traceOffset = $traceMatches[0][$count][1];
+
+            preg_match($rulePatt, $this->string->raw, $ruleMatch, null, $traceOffset);
+
+            $selector = trim($ruleMatch['selector']);
+            $block = trim($ruleMatch['block_content']);
+            $replace = '';
+
+            // If rules are nested they must be extracted and have selectors merged with the parent.
+            if (preg_match_all(Regex::$patt->r_token, $block, $childRules)) {
+
+                $block = preg_replace_callback($rulesAndMediaPatt, function ($m) use (&$replace) {
+                    $replace .= $m[0];
+                    return '';
+                }, $block);
+
+                $rule = new Rule($selector, $block, $ruleMatch['trace_token']);
+                $rawSelectors = array_keys($rule->selectors->store);
+                foreach ($childRules[0] as $childRule) {
+                    $tokens->get($childRule)->selectors->merge($rawSelectors);
+                }
+            }
+            else  {
+                $rule = new Rule($selector, $block, $ruleMatch['trace_token']);
             }
 
-            $rule = new Rule($selector, $block, $m['trace_token']);
-
-            // Store rules if they have declarations or extend arguments.
+            // Store rules only if they have declarations or extend arguments.
             if (! empty($rule->declarations->store) || $rule->extendArgs) {
-
-                return Crush::$process->tokens->add($rule, 'r', $rule->label);
+                $replace = $tokens->add($rule, 'r', $rule->label) . $replace;
             }
-        });
+
+            $this->string->splice($replace, $traceOffset, strlen($ruleMatch[0]));
+        }
     }
 
     protected function processRules()
     {
         // Create table of name/selector to rule references.
         $named_references = array();
+
+        // Flip because rules are captured from end of file.
+        $this->tokens->store->r = array_reverse($this->tokens->store->r);
+
         foreach ($this->tokens->store->r as $rule) {
             if ($rule->name) {
                 $named_references[$rule->name] = $rule;
@@ -599,71 +625,24 @@ class Process
 
     protected function resolveInBlocks()
     {
-        $matches = $this->stream->matchAll('~@in\s+([^{]+)\{~iS');
-        $tokens = Crush::$process->tokens;
+        $matches = $this->string->matchAll('~@in\s+(?<selectors>[^{]+)\{~iS');
 
-        // Move through the matches in reverse order.
         while ($match = array_pop($matches)) {
 
-            $match_start_pos = $match[0][1];
-            $raw_argument = trim($match[1][0]);
+            $selectorsMatch = trim($match['selectors'][0]);
+            $curlyMatch = new BalancedMatch($this->string, $match[0][1]);
 
-            $arguments = Util::splitDelimList(Selector::expandAliases($raw_argument));
-
-            $curly_match = new BalancedMatch($this->stream, $match_start_pos);
-
-            if (! $curly_match->match || empty($raw_argument)) {
+            if (! $curlyMatch->match || empty($selectorsMatch)) {
                 continue;
             }
 
-            // Match all the rule tokens.
-            $rule_matches = Regex::matchAll(
-                Regex::$patt->r_token, $curly_match->inside());
+            $rawSelectors = Util::splitDelimList($selectorsMatch);
 
-            foreach ($rule_matches as $rule_match) {
-
-                // Get the rule instance.
-                $rule = $tokens->get($rule_match[0][0]);
-
-                // Using arguments create new selector list for the rule.
-                $new_selector_list = array();
-
-                foreach ($arguments as $arg_selector) {
-
-                    foreach ($rule->selectors as $rule_selector) {
-
-                        $use_parent_symbol = strpos($rule_selector->value, '&') !== false;
-
-                        // Skipping the prefix.
-                        if (! $rule_selector->allowPrefix && ! $use_parent_symbol) {
-
-                            $new_selector_list[$rule_selector->readableValue] = $rule_selector;
-                        }
-
-                        // Positioning the prefix with parent symbol "&".
-                        elseif ($use_parent_symbol) {
-
-                            $new_value = str_replace(
-                                    '&',
-                                    $arg_selector,
-                                    $rule_selector->value);
-
-                            $new = new Selector($new_value);
-                            $new_selector_list[$new->readableValue] = $new;
-                        }
-
-                        // Prepending the prefix.
-                        else {
-
-                            $new = new Selector("$arg_selector {$rule_selector->value}");
-                            $new_selector_list[$new->readableValue] = $new;
-                        }
-                    }
-                }
-                $rule->selectors->store = $new_selector_list;
+            foreach (Regex::matchAll(Regex::$patt->r_token, $curlyMatch->inside()) as $ruleMatch) {
+                Crush::$process->tokens->get($ruleMatch[0][0])->selectors->merge($rawSelectors);
             }
 
-            $curly_match->unWrap();
+            $curlyMatch->unWrap();
         }
     }
 
@@ -683,12 +662,12 @@ class Process
 
         foreach ($aliases as $at_rule => $at_rule_aliases) {
 
-            $matches = $this->stream->matchAll("~@$at_rule" . '[\s{]~i');
+            $matches = $this->string->matchAll("~@$at_rule" . '[\s{]~i');
 
             // Find at-rules that we want to alias.
             while ($match = array_pop($matches)) {
 
-                $curly_match = new BalancedMatch($this->stream, $match[0][1]);
+                $curly_match = new BalancedMatch($this->string, $match[0][1]);
 
                 if (! $curly_match->match) {
                     // Couldn't match the block.
@@ -771,16 +750,16 @@ class Process
             $regex_replacements['~ ?(@[^;]+\;)~'] = "$1$EOL";
 
             // Trim leading spaces on @-rules and some tokens.
-            $regex_replacements[Regex::make('~ +([@}]|\?[rc]{{token-id}}\?)~S')] = "$1";
+            $regex_replacements[Regex::make('~ +([@}]|\?[rc]{{token_id}}\?)~S')] = "$1";
 
             // Additional newline between adjacent rules and comments.
-            $regex_replacements[Regex::make('~({{r-token}}) (\s*) ({{c-token}})~xS')] = "$1$EOL$2$3";
+            $regex_replacements[Regex::make('~({{r_token}}) (\s*) ({{c_token}})~xS')] = "$1$EOL$2$3";
         }
 
         // Apply all formatting replacements.
-        $this->stream->pregReplaceHash($regex_replacements)->lTrim();
+        $this->string->pregReplaceHash($regex_replacements)->lTrim();
 
-        $this->stream->restore('r');
+        $this->string->restore('r');
 
         // Record stats then drop rule objects to reclaim memory.
         Crush::runStat('selector_count', 'rule_count', 'vars');
@@ -802,7 +781,7 @@ class Process
             }
 
             // Insert comments and do final whitespace cleanup.
-            $this->stream
+            $this->string
                 ->restore('c')
                 ->trim()
                 ->append($EOL);
@@ -829,18 +808,27 @@ class Process
             }
         }
 
+        if ($this->absoluteImports) {
+            $absoluteImports = '';
+            $closing = $minify ? ';' : ";$EOL";
+            foreach ($this->absoluteImports as $import) {
+                $absoluteImports .= "@import $import->url" . ($import->media ? " $import->media" : '') . $closing;
+            }
+            $this->string->prepend($absoluteImports);
+        }
+
         if ($options->boilerplate) {
-            $this->stream->prepend($this->getBoilerplate());
+            $this->string->prepend($this->getBoilerplate());
         }
 
         if ($this->charset) {
-            $this->stream->prepend("@charset \"$this->charset\";$EOL");
+            $this->string->prepend("@charset \"$this->charset\";$EOL");
         }
 
-        $this->stream->restore(array('u', 's'));
+        $this->string->restore(array('u', 's'));
 
         if ($this->addTracingStubs) {
-            $this->stream->restore('t', false, array($this, 'generateTracingStub'));
+            $this->string->restore('t', false, array($this, 'generateTracingStub'));
         }
         if ($this->generateMap) {
             $this->generateSourceMap();
@@ -881,7 +869,7 @@ class Process
         $this->preCompile();
 
         // Collate hostfile and imports.
-        $this->stream = new Stream(Importer::hostfile($this->input));
+        $this->string = new StringObject(Importer::hostfile($this->input));
 
         $this->captureVars();
 
@@ -915,7 +903,7 @@ class Process
 
         $this->postCompile();
 
-        return $this->stream;
+        return $this->string;
     }
 
 
@@ -933,9 +921,9 @@ class Process
             $this->sourceMap['sources'][] = Util::getLinkBetweenPaths($this->output->dir, $source, false);
         }
 
-        $token_patt = Regex::make('~\?[tm]{{token-id}}\?~S');
+        $token_patt = Regex::make('~\?[tm]{{token_id}}\?~S');
         $mappings = array();
-        $lines = preg_split(Regex::$patt->newline, $this->stream->raw);
+        $lines = preg_split(Regex::$patt->newline, $this->string->raw);
         $tokens =& $this->tokens->store;
 
         // All mappings are calculated as delta values.
@@ -973,7 +961,7 @@ class Process
             $mappings[] = implode(',', $line_segments);
         }
 
-        $this->stream->raw = implode($this->newline, $lines);
+        $this->string->raw = implode($this->newline, $lines);
         $this->sourceMap['mappings'] = implode(';', $mappings);
     }
 
@@ -1004,7 +992,7 @@ class Process
 
     protected function decruft()
     {
-        return $this->stream->pregReplaceHash(array(
+        return $this->string->pregReplaceHash(array(
 
             // Strip leading zeros on floats.
             '~([: \(,])(-?)0(\.\d+)~S' => '$1$2$3',
@@ -1042,11 +1030,11 @@ class Process
             $functions_patt = Regex::make('~{{ LB }}(rgb|hsl)\(([^\)]{5,})\)~iS');
         }
 
-        $this->stream->pregReplaceCallback($keywords_patt, function ($m) use ($minified_keywords) {
+        $this->string->pregReplaceCallback($keywords_patt, function ($m) use ($minified_keywords) {
             return $minified_keywords[strtolower($m[0])];
         });
 
-        $this->stream->pregReplaceCallback($functions_patt, function ($m) {
+        $this->string->pregReplaceCallback($functions_patt, function ($m) {
             $args = Functions::parseArgs(trim($m[2]));
             if (stripos($m[1], 'hsl') === 0) {
                 $args = Color::cssHslToRgb($args);

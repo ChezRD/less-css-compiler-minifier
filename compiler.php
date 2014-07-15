@@ -1,10 +1,9 @@
-#!/usr/bin/env php
 <?php
 
 /**
  * @project less-css-compiler-js-minifier
  * @author Evgeny Chez Rumiantsev
- * @date 2014-05-26
+ * @date 2014-04-07
  *
  * @use php path_to_this_script project=path_to_project_root
  */
@@ -237,7 +236,7 @@ if ( empty( $basedir ) && !empty( $config ) && count( $config ) > 0 )
 						$basedir[2] = $mtch[1] . '.js';
 						$output_js = '';
 
-						if ( isset( $cnf['minify'] ) && $cnf['minify'] == 'true' )
+						if ( isset( $cnf['minify'] ) && $cnf['minify'] == 1 )
 						{
 							try
 							{

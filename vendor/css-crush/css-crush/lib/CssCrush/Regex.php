@@ -59,8 +59,8 @@ class Regex
         $patt->rooted_number = '~^' . $classes->number . '$~';
 
         // @-rules.
-        $patt->import = Regex::make('~@import \s+ ({{u-token}}) \s? ([^;]*);~ixS');
-        $patt->charset = Regex::make('~@charset \s+ ({{s-token}}) \s*;~ixS');
+        $patt->import = Regex::make('~@import \s+ ({{u_token}}) \s? ([^;]*);~ixS');
+        $patt->charset = Regex::make('~@charset \s+ ({{s_token}}) \s*;~ixS');
         $patt->mixin = Regex::make('~@mixin \s+ (?<name>{{ident}}) \s* {{block}}~ixS');
         $patt->fragmentCapture = Regex::make('~@fragment \s+ (?<name>{{ident}}) \s* {{block}}~ixS');
         $patt->fragmentInvoke = Regex::make('~@fragment \s+ (?<name>{{ident}}) {{parens}}? \s* ;~ixS');
@@ -68,8 +68,7 @@ class Regex
 
         // Functions.
         $patt->functionTest = Regex::make('~{{ LB }} (?<func_name>{{ ident }}) \(~xS');
-        $patt->varFunction = Regex::make('~\$\( \s* ({{ ident }}) \s* \)~xS');
-        $patt->thisFunction = Regex::makeFunctionPatt(array('this'));
+        $patt->thisFunction = Functions::makePattern(array('this'));
 
         // Strings and comments.
         $patt->string = '~(\'|")(?:\\\\\1|[^\1])*?\1~xS';
@@ -81,31 +80,6 @@ class Regex
             /\*(?:.*?)(?:\*/|$)
         ~xsS';
 
-        // Rules.
-        $patt->ruleFirstPass = Regex::make('~
-            (?:^|(?<=[;{}]))
-            (?<before>
-                (?: \s | {{c-token}} )*
-            )
-            (?<selector>
-                (?:
-                    # Some @-rules are treated like standard rule blocks.
-                    @(?: (?i)page|abstract|font-face(?-i) ) {{RB}} [^{]*
-                    |
-                    [^@;{}]+
-                )
-            )
-            {{block}}
-        ~xS');
-
-        $patt->rule = Regex::make('~
-            (?<trace_token> {{t-token}} )
-            \s*
-            (?<selector> [^{]+ )
-            \s*
-            {{block}}
-        ~xiS');
-
         // Misc.
         $patt->vendorPrefix = '~^-([a-z]+)-([a-z-]+)~iS';
         $patt->ruleDirective = '~^(?:(@include)|(@extends?)|(@name))[\s]+~iS';
@@ -115,23 +89,15 @@ class Regex
 
     public static function make($pattern)
     {
-        static $cache = array(), $pattern_map;
+        static $cache = array();
 
         if (isset($cache[$pattern])) {
             return $cache[$pattern];
         }
 
-        if (! $pattern_map) {
-            $pattern_map = array();
-            foreach (self::$classes as $name => $regex_class) {
-                $pattern_map[str_replace('_', '-', $name)] = $regex_class;
-            }
-        }
-
-        return $cache[$pattern] = preg_replace_callback(
-            '~\{\{ *(?<name>[\w-]+) *\}\}~S', function ($m) use ($pattern_map) {
-                return $pattern_map[$m['name']];
-            }, $pattern);
+        return $cache[$pattern] = preg_replace_callback('~\{\{ *(?<name>\w+) *\}\}~S', function ($m) {
+            return Regex::$classes->{ $m['name'] };
+        }, $pattern);
     }
 
     public static function matchAll($patt, $subject, $offset = 0)
@@ -139,27 +105,6 @@ class Regex
         $count = preg_match_all($patt, $subject, $matches, PREG_OFFSET_CAPTURE | PREG_SET_ORDER, $offset);
 
         return $count ? $matches : array();
-    }
-
-    public static function makeFunctionPatt($list, $options = array())
-    {
-        // Bare parens.
-        $question = '';
-        if (! empty($options['bare_paren'])) {
-            $question = '?';
-            // Signing on math bare parens.
-            $list[] = '-';
-        }
-
-        // Templating func.
-        $template = '';
-        if (! empty($options['templating'])) {
-            $template = '#|';
-        }
-
-        $flat_list = implode('|', array_map('preg_quote', $list));
-
-        return Regex::make("~($template{{ LB }}(?:$flat_list)$question)\(~iS");
     }
 }
 

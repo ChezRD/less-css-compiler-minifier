@@ -53,14 +53,14 @@ class Importer
                 continue;
             }
 
-            // Create import object for convenience.
             $import = new \stdClass();
             $import->url = $process->tokens->get($match[1][0]);
             $import->media = trim($match[2][0]);
 
-            // Skip import if the import URL is protocoled.
+            // Protocoled import urls are not processed. Stash for prepending to output.
             if ($import->url->protocol) {
-                $search_offset = $match_end;
+                $str = substr_replace($str, '', $match_start, $match_len);
+                $process->absoluteImports[] = $import;
                 continue;
             }
 
@@ -155,7 +155,7 @@ class Importer
         }
 
         // Match all urls that are not imports.
-        preg_match_all(Regex::make('~(?<!@import ){{u-token}}~iS'), $import->content, $matches);
+        preg_match_all(Regex::make('~(?<!@import ){{u_token}}~iS'), $import->content, $matches);
 
         foreach ($matches[0] as $token) {
 
@@ -240,7 +240,7 @@ class Importer
                 }
             }
 
-            // Reverse the stream (and brackets) to find stray closing brackets.
+            // Reverse the string (and brackets) to find stray closing brackets.
             $str = strtr(strrev($str), $pairing, strrev($pairing));
 
             preg_match_all($opener_patt, $str, $matches, PREG_OFFSET_CAPTURE);
@@ -273,8 +273,26 @@ class Importer
     {
         $process = Crush::$process;
         $current_file_index = count($process->sources) -1;
+        static $patt;
+        if (! $patt) {
+            $patt = Regex::make('~
+                (?:^|(?<=[;{}]))
+                (?<before>
+                    (?: \s | {{c_token}} )*
+                )
+                (?<selector>
+                    (?:
+                        # Some @-rules are treated like standard rule blocks.
+                        @(?: (?i)page|abstract|font-face(?-i) ) {{RB}} [^{]*
+                        |
+                        [^@;{}]+
+                    )
+                )
+                \{
+            ~xS');
+        }
 
-        $count = preg_match_all(Regex::$patt->ruleFirstPass, $str, $matches, PREG_OFFSET_CAPTURE);
+        $count = preg_match_all($patt, $str, $matches, PREG_OFFSET_CAPTURE);
         while ($count--) {
 
             $selector_offset = $matches['selector'][$count][1];
